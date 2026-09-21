@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 🔐 ใส่ API Key และ URL ของคุณเรียบร้อยแล้ว
+// 🔐 API Key และ URL ของ Supabase
 const SUPABASE_URL = 'https://tvqfqrreqpuqmytvoajb.supabase.co';
 const SUPABASE_KEY = 'EyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2cWZxcnJlcXB1cW15dHZvYWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5NzIzMDEsImV4cCI6MjEwNTU0ODMwMX0.sM2vfoyHY-BAU2PIhXnJ9NR83D-j6efgK2YjJHmUDqE';
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -16,6 +16,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ==========================================
 // API สำหรับลูกค้า (Frontend)
 // ==========================================
+
+// หน้าแรกป้องกัน Server ขึ้น Error
+app.get('/', (req, res) => {
+    res.send('GG Game Store Backend is Running!');
+});
 
 // 1. ดึงข้อมูลผู้ใช้ (User ID: 1)
 app.get('/api/user', async (req, res) => {
@@ -141,5 +146,6 @@ app.post('/api/admin/process-withdraw', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
+// Port สำหรับ Render
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
