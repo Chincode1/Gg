@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - อนุมัติการถอนเงิน</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4 md:p-8 font-sans">
+
+    <div class="max-w-4xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-center border-b border-gray-800 pb-4">
+            <h1 class="text-xl md:text-2xl font-bold text-yellow-400 flex items-center gap-2">
+                🛠️ ระบบหลังบ้าน Admin
+            </h1>
+            <a href="/index.html" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-2 rounded-lg transition">
+                ← กลับหน้าหลัก
+            </a>
+        </div>
+
+        <!-- รายการถอนเงินที่รออนุมัติ -->
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5 shadow-lg">
+            <h2 class="text-md font-bold mb-4 text-white">📋 คำขอถอนเงินที่รอตรวจสอบ (Pending)</h2>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-700 text-gray-400 text-xs">
+                            <th class="py-2 px-3">ผู้ใช้</th>
+                            <th class="py-2 px-3">จำนวนเงิน</th>
+                            <th class="py-2 px-3">เลขบัญชี/พร้อมเพย์</th>
+                            <th class="py-2 px-3">เวลา</th>
+                            <th class="py-2 px-3 text-center">การจัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="withdrawList" class="divide-y divide-gray-700/50">
+                        <tr>
+                            <td colspan="5" class="py-4 text-center text-gray-500 text-xs">กำลังโหลดรายการ...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- สคริปต์จัดการรายการถอนเงิน -->
+    <script>
+        async function loadPendingWithdrawals() {
+            try {
+                const res = await fetch('/api/admin/pending-withdrawals');
+                const requests = await res.json();
+                const tbody = document.getElementById('withdrawList');
+                tbody.innerHTML = '';
+
+                if (!requests || requests.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-gray-400 text-xs">ไม่มีรายการที่รออนุมัติในขณะนี้</td></tr>';
+                    return;
+                }
+
+                requests.forEach(req => {
+                    const username = req.users ? req.users.username : 'User ID: ' + req.user_id;
+                    const dateStr = new Date(req.created_at).toLocaleString('th-TH', { hour12: false });
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td class="py-3 px-3 font-medium text-blue-400">${username}</td>
+                            <td class="py-3 px-3 font-bold text-red-400">${Number(req.amount).toFixed(2)} ฿</td>
+                            <td class="py-3 px-3 font-mono text-gray-300">${req.bank_account}</td>
+                            <td class="py-3 px-3 text-xs text-gray-400">${dateStr}</td>
+                            <td class="py-3 px-3 text-center space-x-2">
+                                <button onclick="processWithdraw(${req.id}, 'approve')" 
+                                    class="bg-green-600 hover:bg-green-500 text-white px-2.5 py-1 rounded text-xs font-bold transition">
+                                    อนุมัติ
+                                </button>
+                                <button onclick="processWithdraw(${req.id}, 'reject')" 
+                                    class="bg-red-600 hover:bg-red-500 text-white px-2.5 py-1 rounded text-xs font-bold transition">
+                                    ปฏิเสธ
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                console.error("เกิดข้อผิดพลาดในการโหลดรายการ:", err);
+            }
+        }
+
+        async function processWithdraw(transactionId, action) {
+            const actionText = action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ (พร้อมคืนเงินเข้าบัญชีลูกค้าระบบ)';
+            if (!confirm(`คุณต้องการ "${actionText}" รายการนี้ใช่หรือไม่?`)) return;
+
+            const res = await fetch('/api/admin/process-withdraw', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transactionId, action })
+            });
+
+            const data = await res.json();
+            alert(data.message);
+            loadPendingWithdrawals();
+        }
+
+        loadPendingWithdrawals();
+    </script>
+</body>
+</html>
