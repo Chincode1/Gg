@@ -1,0 +1,145 @@
+const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
+const cors = require('cors');
+const path = require('path');
+
+const app = express();
+app.use(express.json());
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 🔐 ใส่ API Key และ URL ของคุณเรียบร้อยแล้ว
+const SUPABASE_URL = 'https://tvqfqrreqpuqmytvoajb.supabase.co';
+const SUPABASE_KEY = 'EyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2cWZxcnJlcXB1cW15dHZvYWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5NzIzMDEsImV4cCI6MjEwNTU0ODMwMX0.sM2vfoyHY-BAU2PIhXnJ9NR83D-j6efgK2YjJHmUDqE';
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ==========================================
+// API สำหรับลูกค้า (Frontend)
+// ==========================================
+
+// 1. ดึงข้อมูลผู้ใช้ (User ID: 1)
+app.get('/api/user', async (req, res) => {
+    const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+});
+
+// 2. ดึงรายการสินค้าไอดีเกม
+app.get('/api/products', async (req, res) => {
+    const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('status', 'available');
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+});
+
+// 3. ระบบฝากเงิน (Deposit)
+app.post('/api/deposit', async (req, res) => {
+    const { amount, slipCode } = req.body;
+    const userId = 1;
+
+    if (!amount || amount <= 0 || !slipCode) {
+        return res.status(400).json({ success: false, message: 'กรอกข้อมูลไม่ถูกต้อง' });
+    }
+
+    const { data: existingTx } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('slip_code', slipCode)
+        .single();
+
+    if (existingTx) {
+        return res.status(400).json({ success: false, message: 'สลิปนี้ถูกใช้งานไปแล้ว!' });
+    }
+
+    const { error: txError } = await supabase
+        .from('transactions')
+        .insert([
+            { user_id: userId, type: 'deposit', amount: amount, slip_code: slipCode, status: 'success' }
+        ]);
+
+    if (txError) return res.status(500).json({ success: false, message: 'บันทึกสลิปไม่สำเร็จ' });
+
+    const { data: user } = await supabase.from('users').select('balance').eq('id', userId).single();
+    const newBalance = Number(user.balance) + Number(amount);
+
+    await supabase.from('users').update({ balance: newBalance }).eq('id', userId);
+
+    res.json({ success: true, message: `ฝากเงินสำเร็จจำนวน ${amount} บาท` });
+});
+
+// 4. ระบบถอนเงิน (Withdraw)
+app.post('/api/withdraw', async (req, res) => {
+    const { amount, bankAccount } = req.body;
+    const userId = 1;
+
+    if (!amount || amount <= 0 || !bankAccount) {
+        return res.status(400).json({ success: false, message: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
+    }
+
+    const { data: user } = await supabase.from('users').select('balance').eq('id', userId).single();
+
+    if (user.balance < amount) {
+        return res.status(400).json({ success: false, message: 'ยอดเงินคงเหลือไม่พอ' });
+    }
+
+    const newBalance = Number(user.balance) - Number(amount);
+    await supabase.from('users').update({ balance: newBalance }).eq('id', userId);
+
+    await supabase.from('transactions').insert([
+        { user_id: userId, type: 'withdraw', amount: amount, bank_account: bankAccount, status: 'pending' }
+    ]);
+
+    res.json({ success: true, message: 'ส่งคำขอถอนเงินแล้ว รอ Admin ตรวจสอบ' });
+});
+
+// ==========================================
+// API สำหรับ Admin
+// ==========================================
+
+// 5. ดึงรายการถอนเงินที่รออนุมัติ
+app.get('/api/admin/pending-withdrawals', async (req, res) => {
+    const { data, error } = await supabase
+        .from('transactions')
+        .select('*, users(username)')
+        .eq('type', 'withdraw')
+        .eq('status', 'pending');
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+});
+
+// 6. Admin อนุมัติ/ปฏิเสธ คำขอถอนเงิน
+app.post('/api/admin/process-withdraw', async (req, res) => {
+    const { transactionId, action } = req.body;
+
+    const { data: tx } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+
+    if (!tx || tx.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'ไม่พบรายการที่รออนุมัติ' });
+    }
+
+    if (action === 'approve') {
+        await supabase.from('transactions').update({ status: 'success' }).eq('id', transactionId);
+        res.json({ success: true, message: 'อนุมัติการถอนเงินเรียบร้อย' });
+    } else if (action === 'reject') {
+        await supabase.from('transactions').update({ status: 'rejected' }).eq('id', transactionId);
+        
+        const { data: user } = await supabase.from('users').select('balance').eq('id', tx.user_id).single();
+        const refundedBalance = Number(user.balance) + Number(tx.amount);
+        
+        await supabase.from('users').update({ balance: refundedBalance }).eq('id', tx.user_id);
+        
+        res.json({ success: true, message: 'ปฏิเสธคำขอและคืนเงินเรียบร้อย' });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
